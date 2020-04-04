@@ -1,0 +1,223 @@
+---
+title: "DDS Project2"
+author: "Andrew Leppla"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r import, include=FALSE}
+
+CaseStudy2 <- read.csv("C:/Users/aleppla/GitRepos/MDS-6306-Doing-Data-Science/Unit 14 and 15 Case Study 2/CaseStudy2-data.csv",header=T)
+
+#install.packages("onewaytests")
+library(onewaytests)
+library(tidyverse)
+```
+
+```{r EDA, include=FALSE}
+
+summary(CaseStudy2)
+
+
+# Variables with no information, drop from dataset
+## EmployeeCount is all 1's
+## All 870 employees are Over18 (all 1's)
+## StandardHours is all 80's across the board
+CaseStudy2=CaseStudy2[,-c(10,23,28)]
+
+
+# Some Continuous Variables vs. MonthlyIncome and Attrition
+
+pairs(CaseStudy2[,c(19,2,5,7,13,20,21,23)],col=CaseStudy2$Attrition)
+
+# MonthlyIncome and Age are visually correlated for regression model
+cor(CaseStudy2$Age,CaseStudy2$MonthlyIncome) # r=0.48
+
+# MonthlyIncome shows some decent color separation for predicting Attrition
+hist(CaseStudy2$MonthlyIncome) ## Right-skewed distribution
+
+
+# More Continuous "Years" Variables vs. Monthly Income (and Attrition)
+
+pairs(CaseStudy2[,c(19,2,27:28,30:33)],col=CaseStudy2$Attrition)
+# "Years" Variables are partially correlated
+pairs(CaseStudy2[,c(27,30:33)],col=CaseStudy2$Attrition)
+
+cor(CaseStudy2[,c(19,2,27,30:33)])
+# TotalWorkingYears is the single best predictor, r=0.78
+# Everything is partially correlated = Multicollinearity
+# Age + YearsAtCompany look like the best 2 predictors to try together
+
+plot(MonthlyIncome~TotalWorkingYears,data=CaseStudy2)
+# Bands for Income by Total Years Working: 0,1,2-3,4-5,6-8,9-20,21-40 years
+## Recode as categorical
+# Income "boundaries" around 1,500 and 20,000 (not continuous)
+
+
+
+hist(CaseStudy2$TotalWorkingYears) # right skewed
+hist(CaseStudy2$TotalWorkingYears,breaks=40)
+
+# Change 0s to 0.5 for log transform
+zeros=grep("\\b0\\b",CaseStudy2$TotalWorkingYears)
+CaseStudy2$TotalWorkingYears[zeros]=0.5
+summary(CaseStudy2$TotalWorkingYears)
+CaseStudy2$log_TWYrs=log(CaseStudy2$TotalWorkingYears)
+summary(CaseStudy2$log_TWYrs) # No NA values
+CaseStudy2$TotalWorkingYears[zeros]=0 #Change original data back
+
+plot(MonthlyIncome~log_TWYrs,data=CaseStudy2) # exponential
+plot(log(MonthlyIncome)~log_TWYrs,data=CaseStudy2)
+
+
+# Factors with 2-4 levels coded as integers
+
+pairs(CaseStudy2[,c(19,4,8,11,14:15,17)],col=CaseStudy2$Attrition)
+# MonthlyIncome and JobLevel are strongly correlated, r=0.95
+cor(CaseStudy2[,c(19,15,2,27,30:33)])
+# JobLevel is partially correlated with other predictors
+
+pairs(CaseStudy2[,c(19,21,24:26,28:29)],col=CaseStudy2$Attrition)
+
+
+# Categorical Factors  
+
+par(mfrow=c(3,3))
+boxplot(MonthlyIncome~BusinessTravel,data=CaseStudy2)
+boxplot(MonthlyIncome~Department,data=CaseStudy2) #Minor Effect
+boxplot(MonthlyIncome~EducationField,data=CaseStudy2) #Minor Effect
+boxplot(MonthlyIncome~Gender,data=CaseStudy2)
+boxplot(MonthlyIncome~JobRole,data=CaseStudy2) # Biggest Factor
+boxplot(MonthlyIncome~MaritalStatus,data=CaseStudy2)
+boxplot(MonthlyIncome~OverTime,data=CaseStudy2)
+boxplot(MonthlyIncome~Attrition,data=CaseStudy2) #Minor Effect
+par(mfrow=c(1,1))
+
+# Data aren't balanced for JobLevel vs. JobRole, partially confounded
+
+CaseStudy2 %>% ggplot(aes(JobLevel,MonthlyIncome,col=JobRole)) + geom_count() + geom_smooth(method="lm")
+
+CaseStudy2 %>% ggplot(aes(JobRole,MonthlyIncome,col=JobLvl)) + geom_count()
+
+# Combine levels for Income regression?
+## Manager and Research Director: Job Levels 3-5
+## Manufacturing Director, Healthcare Representative, Sales Executive: Job Levels 2-4
+## Research Scientist, Human Resources: Job Levels 1-3
+## Laboratory Technician: Job Levels 1-3
+## Sales Representative: Job Levels 1-2
+
+# Job Level 2 has the most variation, need more variables
+
+
+CaseStudy2 %>% filter(JobLevel==2) %>% ggplot(aes(EducationField,MonthlyIncome,col=JobRole)) + geom_count()
+#Marketing is 100% counfounded with Sales Executive
+
+```
+
+
+```{r Salary Regression}
+
+salary1=lm(MonthlyIncome~JobLevel,data=CaseStudy2)
+summary(salary1) #Rsq = 90.56%
+plot(salary1) 
+# Some curvature in residuals, and non-constant variance
+## Model as factor or polynomial
+# Residuals are non-normal, but CLT with n>30
+# Outliers have low leverage
+
+CaseStudy2$JobLvl=as.factor(CaseStudy2$JobLevel)
+
+salary1f=lm(MonthlyIncome~JobLvl,data=CaseStudy2)
+summary(salary1f) #Rsq = 92.48%
+plot(salary1f) 
+# Non-constant variance still an issue
+# Use weighted variances or unequal variance method(s)
+
+
+#Calculate and populate weights for each data row
+wts = data.frame(seq(1:length(salary1f$fitted.values)),as.factor(trunc(salary1f$fitted.values,1)),salary1f$residuals)
+names(wts)=c("row","fits","residuals")
+head(wts,n=10)
+wt = wts %>% group_by(fits) %>% summarize("weight"=1/var(residuals))
+wt = as.data.frame(wt)
+Wt=merge(wts,wt,by="fits")
+Wt=Wt[order(Wt$row),]
+
+#weight=CaseStudy2 %>% group_by(JobLvl) %>% summarize("weight"=1/var(MonthlyIncome))
+
+
+salary1fw=glm(MonthlyIncome~JobLvl,data=CaseStudy2,weights=Wt$weight)
+summary(salary1fw) #Rsq = 92.48%
+plot(salary1fw)
+
+# Use non-constant variance tests
+oneway.test(MonthlyIncome~JobLvl,data=CaseStudy2,var.equal=F)
+kruskal.test(MonthlyIncome~JobLvl,data=CaseStudy2)
+
+salary2=lm(MonthlyIncome~JobRole,data=CaseStudy2) 
+summary(salary2) #Rsq = 92.48%
+plot(salary2)
+# Less non-constant variance in residuals
+
+
+```
+
+```{r Salary ANOVA}
+
+
+
+```
+
+```{r Training-Test Split}
+
+set.seed(11133)
+index=sample(1:dim(CaseStudy2)[1],dim(CaseStudy2)[1]*0.7,replace=F)
+train_CS2=CaseStudy2[index,]
+test_CS2=CaseStudy2[-index,]
+
+summary(train_CS2$Attrition)[2]/dim(train_CS2)[1] # 17% yes's
+summary(test_CS2$Attrition)[2]/dim(test_CS2)[1] # 14% yes's
+
+summary(train_CS2)
+summary(test_CS2)
+
+```
+
+```{r kNN}
+
+df=data.frame(age=c(37,37,37),pclass=c(1,2,3)) #Use to build kNN table
+
+df$k3=knn(titanic.train.clean[,c(4,6)], df1, titanic.train.clean$survived , prob=T, k = 3)
+df$k3.prob=attr(df$k3,"prob")
+
+```
+
+
+```{r Naive Bayes}
+
+
+
+```
+
+
+```{r LDA}
+library(MASS)
+library(caret)
+
+my_lda1 <- lda(Attrition ~ MonthlyIncome, data = CaseStudy2,CV=T,prior=c(0.53,0.47))
+CM_1 = confusionMatrix(table(my_lda1$class,CaseStudy2$Attrition))
+CM_1
+# 60% sensitivity and specificity
+
+my_lda2 <- lda(Attrition ~ MonthlyIncome + PerformanceRating, data = CaseStudy2,CV=T)
+CM_2 = confusionMatrix(table(my_lda2$class,CaseStudy2$Attrition))
+CM_2
+# 60% sensitivity and specificity
+
+```
+
+
