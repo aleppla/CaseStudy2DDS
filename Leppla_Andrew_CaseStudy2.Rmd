@@ -18,7 +18,7 @@ library(onewaytests)
 library(tidyverse)
 ```
 
-```{r EDA, include=FALSE}
+```{r EDA Continuous Variables, include=FALSE}
 
 summary(CaseStudy2)
 
@@ -72,17 +72,24 @@ CaseStudy2$TotalWorkingYears[zeros]=0 #Change original data back
 
 plot(MonthlyIncome~log_TWYrs,data=CaseStudy2) # exponential
 plot(log(MonthlyIncome)~log_TWYrs,data=CaseStudy2)
+```
 
+```{r EDA Continuous/Factor Variables, include=FALSE}
 
 # Factors with 2-4 levels coded as integers
 
-pairs(CaseStudy2[,c(19,4,8,11,14:15,17)],col=CaseStudy2$Attrition)
+pairs(CaseStudy2[,c(19,8,11,14,15,17)],col=CaseStudy2$Attrition)
 # MonthlyIncome and JobLevel are strongly correlated, r=0.95
+pairs(CaseStudy2[,c(19,15,27,30:33)],col=CaseStudy2$Attrition)
 cor(CaseStudy2[,c(19,15,2,27,30:33)])
 # JobLevel is partially correlated with other predictors
 
 pairs(CaseStudy2[,c(19,21,24:26,28:29)],col=CaseStudy2$Attrition)
 
+
+```
+
+```{r EDA Categorical Variables, include=FALSE}
 
 # Categorical Factors  
 
@@ -119,60 +126,7 @@ CaseStudy2 %>% filter(JobLevel==2) %>% ggplot(aes(EducationField,MonthlyIncome,c
 ```
 
 
-```{r Salary Regression}
-
-salary1=lm(MonthlyIncome~JobLevel,data=CaseStudy2)
-summary(salary1) #Rsq = 90.56%
-plot(salary1) 
-# Some curvature in residuals, and non-constant variance
-## Model as factor or polynomial
-# Residuals are non-normal, but CLT with n>30
-# Outliers have low leverage
-
-CaseStudy2$JobLvl=as.factor(CaseStudy2$JobLevel)
-
-salary1f=lm(MonthlyIncome~JobLvl,data=CaseStudy2)
-summary(salary1f) #Rsq = 92.48%
-plot(salary1f) 
-# Non-constant variance still an issue
-# Use weighted variances or unequal variance method(s)
-
-
-#Calculate and populate weights for each data row
-wts = data.frame(seq(1:length(salary1f$fitted.values)),as.factor(trunc(salary1f$fitted.values,1)),salary1f$residuals)
-names(wts)=c("row","fits","residuals")
-head(wts,n=10)
-wt = wts %>% group_by(fits) %>% summarize("weight"=1/var(residuals))
-wt = as.data.frame(wt)
-Wt=merge(wts,wt,by="fits")
-Wt=Wt[order(Wt$row),]
-
-#weight=CaseStudy2 %>% group_by(JobLvl) %>% summarize("weight"=1/var(MonthlyIncome))
-
-
-salary1fw=glm(MonthlyIncome~JobLvl,data=CaseStudy2,weights=Wt$weight)
-summary(salary1fw) #Rsq = 92.48%
-plot(salary1fw)
-
-# Use non-constant variance tests
-oneway.test(MonthlyIncome~JobLvl,data=CaseStudy2,var.equal=F)
-kruskal.test(MonthlyIncome~JobLvl,data=CaseStudy2)
-
-salary2=lm(MonthlyIncome~JobRole,data=CaseStudy2) 
-summary(salary2) #Rsq = 92.48%
-plot(salary2)
-# Less non-constant variance in residuals
-
-
-```
-
-```{r Salary ANOVA}
-
-
-
-```
-
-```{r Training-Test Split}
+```{r Training-Test Split, include=F}
 
 set.seed(11133)
 index=sample(1:dim(CaseStudy2)[1],dim(CaseStudy2)[1]*0.7,replace=F)
@@ -187,18 +141,233 @@ summary(test_CS2)
 
 ```
 
+
+## kNN Prediction of Attrition
+
+K Nearest Neighbors (kNN) was used to predict Attrition.  Monthly Income, Monthly Rate, and Daily Rate together predicted Attrition with 85% Accuracy overall.  This model correctly predicts if an employee will stay (Attrition="no") 85% of the time (sensitivity), and it correctly predicts if an employee with leave (Attrition="yes")  75% of the time (specificity).
+
+
 ```{r kNN}
 
-df=data.frame(age=c(37,37,37),pclass=c(1,2,3)) #Use to build kNN table
+library(class)
 
-df$k3=knn(titanic.train.clean[,c(4,6)], df1, titanic.train.clean$survived , prob=T, k = 3)
-df$k3.prob=attr(df$k3,"prob")
+# Best guess from pairs plots
+k1=knn(train_CS2[,c(19,5)], test_CS2[,c(19,5)], train_CS2$Attrition , prob=T, k = 13)
+CM1=confusionMatrix(table(test_CS2$Attrition,k1)) # 86/50 sens/spec
+# Need to add predictor(s) to get Specificity > 60%
+
+# Add all cont. variables that had some visual separation from pairs plots
+k_dump1=knn(train_CS2[,c(19,2,5,7,13,20,21,23)], test_CS2[,c(19,2,5,7,13,20,21,23)], train_CS2$Attrition , prob=T, k = 9) # k=9 is best local value
+CM_dump1=confusionMatrix(table(test_CS2$Attrition,k_dump1)) # 87/75 sens/spec
+# Goal achieved, but which ones are 
+
+# Eliminate variables one-by-one to see what is significant
+# Keep: Monthly Income, DailyRate, Monthly Rate
+k2=knn(train_CS2[,c(19,5,20)], test_CS2[,c(19,5,20)], train_CS2$Attrition , prob=T, k = 9) # 9 is best local k
+CM2=confusionMatrix(table(test_CS2$Attrition,k2)) # 87/75 sens/spec
+CM2
+
+# Add all remaining variables to see if it improves
+k_dump2=knn(train_CS2[,c(19,5,20,8,11,14,15,17,21,24:26,28,29,30:33)], test_CS2[,c(19,5,20,8,11,14,15,17,21,24:26,28,29,30:33)], train_CS2$Attrition , prob=T, k = 9) # 9 is best local k
+CM_dump2=confusionMatrix(table(test_CS2$Attrition,k_dump2)) # 87/75
+# No Improvement
+
+
+# Fit Final Model to Full Data Set
+
+k3=knn(CaseStudy2[,c(19,5,20)], CaseStudy2[,c(19,5,20)], CaseStudy2$Attrition , prob=T, k = 9)
+CM3=confusionMatrix(table(CaseStudy2$Attrition,k3)) # 85/75
+CM3
+
+#Create a colored 3D Visualization of the kNN Model
+pairs(train_CS2[,c(19,5,20)],col=train_CS2$Attrition)
+title("Training Set")
+pairs(test_CS2[,c(19,5,20)],col=train_CS2$Attrition)
+title("Test Set")
 
 ```
 
 
-```{r Naive Bayes}
+## Regression Prediction of Monthly Salary
 
+Regression was used to predict Monthly Salary.  Job Level alone predicted Monthly Salary very well with an average error (RMSE) of approximately $1,250 and an R-squared value of 97%.  Mean Monthly Salary increases (non-linearly) as Job Level increases from 1 to 4.  This is a simple, effective, practical model.  
+
+Job Level is strongly related to Job Role as follows:
+
+## Manager and Research Director: Job Levels 3-5
+## Manufacturing Director, Healthcare Representative, Sales Executive: Job Levels 2-4
+## Research Scientist, Human Resources: Job Levels 1-3
+## Laboratory Technician: Job Levels 1-3
+## Sales Representative: Job Levels 1-2
+
+```{r Salary Regression CV}
+
+# Linear Model (lm) with JobLevel as numeric
+lm1=lm(MonthlyIncome~JobLevel,data=train_CS2)
+summary(lm1) #Rsq = 90.6%
+
+# Check Residuals
+par(mfrow=c(2,2))
+plot(lm1,which=1) # Curvature and non-constant variance
+plot(lm1,which=2) # Residuals not normal, ok since n>30
+plot(lm1,which=4) # Ok
+plot(lm1,which=5) # Ok
+par(mfrow=c(1,1))
+
+# Recode JobLevel as factor to fix curvature in residuals
+CaseStudy2$JobLvl=as.factor(CaseStudy2$JobLevel)
+
+# Linear Model (lm) with JobLevel as factor
+lm1f=lm(MonthlyIncome~JobLvl,data=train_CS2)
+summary(lm1f) #Rsq = 92.5%
+
+# Check Residuals
+par(mfrow=c(2,2))
+plot(lm1f,which=1) # Non-constant variance
+plot(lm1f,which=2) # Ok since n>30
+plot(lm1f,which=4) # Ok
+plot(lm1f,which=5) # Ok
+par(mfrow=c(1,1))
+
+
+# Brown Forsythe non-constant variance test
+bf.test(MonthlyIncome~JobLvl,data=CaseStudy2)
+
+# Welch's test of multiple levels with non-constant variance
+oneway.test(MonthlyIncome~JobLvl,data=CaseStudy2,var.equal=F)
+
+# Kruskal-Wallance non-parametric test of multiple levels
+kruskal.test(MonthlyIncome~JobLvl,data=CaseStudy2)
+```
+
+Non-constant variance in residuals is still an issue. Use weighted least squares or unequal variance method(s).
+
+
+```{r Weighted Least Squares}
+
+# Calculate and populate weights of 1/variance
+weight=CaseStudy2 %>% group_by(JobLvl) %>%
+  summarize("weight"=1/var(MonthlyIncome))
+weight=as.data.frame(weight)
+CaseStudy2=merge(CaseStudy2,weight,by="JobLvl")
+CaseStudy2=CaseStudy2[order(CaseStudy2$ID),]
+
+# Rerun Training-Test Split to get weights
+set.seed(11133)
+index=sample(1:dim(CaseStudy2)[1],dim(CaseStudy2)[1]*0.7,replace=F)
+train_CS2=CaseStudy2[index,]
+test_CS2=CaseStudy2[-index,]
+
+
+# Weighted Linear Model vs. JobLvl factor
+lm1f_wtd = lm(MonthlyIncome~JobLvl,data=train_CS2,weights=weight)
+summary(lm1_wtd) # Rsq=97%
+# Compared to lm1f, weights don't change the Coefficient Estimates 
+# for the factor levels, doesn't fix the underlying variance issue
+
+
+# Weighted Linear Model vs. JobLevel numeric
+lm1_wtd = lm(MonthlyIncome~JobLevel,data=train_CS2,weights=weight)
+summary(lm1_wtd) # Rsq=96%
+# Compared to lm1, weights change the Coefficient Estimates
+
+par(mfrow=c(1,2))
+plot(lm1_wtd,which=1) # Non-weighted residuals
+plot(weighted.residuals(lm1_wtd)~lm1_wtd$fitted.values)
+title("Weighted Residuals vs Fitted")
+# Still curvature in weighted residuals
+
+
+# Weighted Quadratic Model vs. JobLevel numeric
+qm1_wtd = lm(MonthlyIncome~JobLevel+I(JobLevel^2),data=train_CS2,weights=weight)
+summary(qm1_wtd) # Rsq=97.1%
+
+# Check curvature of residuals vs. fits 
+par(mfrow=c(1,2))
+plot(qm1_wtd,which=1) # Non-weighted residuals
+plot(weighted.residuals(qm1_wtd)~qm1_wtd$fitted.values)
+title("Weighted Residuals vs Fitted")
+# Still some curvature 
+
+# Check All Residuals
+## GLM uses weighted residuals by default
+glm1_wtd = glm(MonthlyIncome~JobLevel+I(JobLevel^2),data=train_CS2,weights=weight)
+par(mfrow=c(2,2))
+plot(glm1_wtd,which=1) # Could fit cubic
+plot(glm1_wtd,which=2) # Ok with n>30
+plot(glm1_wtd,which=4) # Ok
+plot(glm1_wtd,which=5) # Ok
+par(mfrow=c(1,1))
+
+
+# Weighted Cubic Model vs. JobLevel numeric
+cm1_wtd = lm(MonthlyIncome~JobLevel+I(JobLevel^2)+I(JobLevel^3),data=train_CS2,weights=weight)
+summary(cm1_wtd) # Rsq=97.2%, little improvement
+
+#Check Residuals
+glm3_wtd = glm(MonthlyIncome~JobLevel+I(JobLevel^2)+I(JobLevel^3),data=train_CS2,weights=weight)
+par(mfrow=c(2,2))
+plot(glm3_wtd,which=1) # Ok, slight upward trend
+plot(glm3_wtd,which=2) # Ok with n>30
+plot(glm3_wtd,which=4) # Ok
+plot(glm3_wtd,which=5) # Ok
+par(mfrow=c(1,1))
+```
+
+## RMSE Calculations
+
+``` {r RMSE}
+ 
+Train_RMSE=c()
+Test_RMSE=c()
+
+# JobLevel Quadratic
+qm1_train_pred = predict(qm1_wtd, newdata = train_CS2)
+qm1_test_pred = predict(qm1_wtd, newdata = test_CS2)
+Train_RMSE[1] = sqrt(mean((train_CS2$MonthlyIncome - qm1_train_pred)^2))
+Test_RMSE[1] = sqrt(mean((test_CS2$MonthlyIncome - qm1_test_pred)^2))
+
+# JobLevel Cubic
+cm1_train_pred = predict(cm1_wtd, newdata = train_CS2)
+cm1_test_pred = predict(cm1_wtd, newdata = test_CS2)
+Train_RMSE[2] = sqrt(mean((train_CS2$MonthlyIncome - cm1_train_pred)^2))
+Test_RMSE[2] = sqrt(mean((test_CS2$MonthlyIncome - cm1_test_pred)^2))
+
+# JobLvl Factor
+lm1f_train_pred = predict(lm1f, newdata = train_CS2)
+lm1f_test_pred = predict(lm1f, newdata = test_CS2)
+Train_RMSE[3] = sqrt(mean((train_CS2$MonthlyIncome - lm1_train_pred)^2))
+Test_RMSE[3] = sqrt(mean((test_CS2$MonthlyIncome - lm1_test_pred)^2))
+
+RMSE = data.frame(c("Quadratic","Cubic","Factor"),Train_RMSE,Test_RMSE)
+names(RMSE)=c("JobLevel_Model","Training_RMSE", "Test_RMSE")
+RMSE
+
+```
+
+## Fit Final Model to Full Data Set
+
+```{r Final Reg Model}
+lm.final = lm(MonthlyIncome~JobLevel+I(JobLevel^2)+I(JobLevel^3),data=CaseStudy2,weights=weight)
+summary(lm.final) # Rsq=97.2% 
+
+#Check Residuals
+glm.final = glm(MonthlyIncome~JobLevel+I(JobLevel^2)+I(JobLevel^3),data=CaseStudy2,weights=weight)
+par(mfrow=c(2,2))
+plot(glm.final,which=1) # 
+plot(glm.final,which=2) # Ok with n>30
+plot(glm.final,which=4) # Ok
+plot(glm.final,which=5) # Ok
+par(mfrow=c(1,1))
+
+lm.final.pred = predict(lm.final, newdata = CaseStudy2)
+Final_RMSE=sqrt(mean((CaseStudy2$MonthlyIncome - lm.final.pred)^2))
+Final_RMSE
+
+##################################################
+# Visualize the Model
+
+plot(CaseStudy2$JobLevel,CaseStudy2$MonthlyIncome)
 
 
 ```
@@ -217,6 +386,7 @@ my_lda2 <- lda(Attrition ~ MonthlyIncome + PerformanceRating, data = CaseStudy2,
 CM_2 = confusionMatrix(table(my_lda2$class,CaseStudy2$Attrition))
 CM_2
 # 60% sensitivity and specificity
+
 
 ```
 
