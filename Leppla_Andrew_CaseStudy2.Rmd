@@ -1,22 +1,21 @@
 ---
 title: "DDS Project2"
 author: "Andrew Leppla"
-date: "4/16/2020"
+date: "4/18/2020"
 output: html_document
-editor_options: 
-  chunk_output_type: console
 ---
 
 ## Executive Summary
 
-DDS Analytics conducted an analysis of existing employee data to predict voluntary employee turnover (Attrition).  The top 3 factors that predict Attrition are Overtime, Job Role, and Marital Status. Employees that don't work Overtime are less likely to quit.  Married and Divorced employees are likely likely to quit than Single employees.  Directors are least likely to quit, then Managers and HeathCare Reps, followed by HR, Lab Techs, R&D Scientists, and Sales Execs.  Sales Reps are the most likely to quit. 
+DDS Analytics conducted an analysis of existing employee data to predict voluntary employee turnover (Attrition).  The top 3 factors that predict Attrition are Overtime, Job Role, and Monthly Income. Employees that don't work Overtime are less likely to quit.  For Job Roles, Directors are least likely to quit, then Managers and HeathCare Reps, followed by HR, Lab Techs, R&D Scientists, and Sales Execs.  Sales Reps are the most likely to quit.  The Job Roles with lower attrition are associated with higher monthly incomes and vice versa.  There is likely a trade-off between the cost of retaining an employee with a raise or promotion vs. the cost to recruit, hire, and retain a new employee. 
 
-The Attrition model correctly predicts if an employee will leave about 80-85% of the time, and correctly predicts if an employee will stay about 60-65% of the time.
+The Attrition model correctly predicts if an employee will leave or stay about 70-75% of the time.
 
 DDS Analytics also conducted an analysis to predict salary (Monthly Income).  Job Level was the single biggest factor which explained 97% of the variation in the data and predicted salary with an average error of $1,260/month.
 
-Higher Job Levels are associated with higher monthly incomes and lower attrition.  There is likely a trade-off between the cost of retaining an employee by promoting them vs. the cost to recruit, hire, and retain a new employee.
+### Presentation
 
+A presentation of this analysis can be found at: https://youtu.be/WmFpZSvjUp4
 
 ## Introduction
 
@@ -30,8 +29,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r Import and Libraries, include=FALSE}
 
+#Training Set
 CaseStudy2 <- read.csv("C:/Users/aleppla/GitRepos/MDS-6306-Doing-Data-Science/Unit 14 and 15 Case Study 2/CaseStudy2-data.csv",header=T)
 
+#Test/Competition Sets
+CS2CompAttr <- read.csv("C:/Users/aleppla/GitRepos/MDS-6306-Doing-Data-Science/Unit 14 and 15 Case Study 2/CaseStudy2CompSetNoAttrition.csv",header=T)
+CS2CompSalary <- read.csv("C:/Users/aleppla/GitRepos/MDS-6306-Doing-Data-Science/Unit 14 and 15 Case Study 2/CaseStudy2CompSetNoSalary.csv",header=T)
+
+#Libraries
 library(tidyverse)
 library(class) # kNN
 library(e1071) # Naive Bayes
@@ -39,6 +44,7 @@ library(onewaytests) # Constant variance tests
 library(caret) # Confusion Matrix
 library(ROCR) # ROC Curves
 library(MASS) # LDA
+library(randomForest)
 
 ```
 
@@ -49,7 +55,7 @@ Several variables had the same value for all employees (no variation) and were d
 
 Categorical variables were explored for both Naive Bayes, Random Forest, and Regression models.  
 
-Continuous variables were explored for k Nearest Neighbors (kNN), Random Forest, and Regression models. 
+Continuous variables were explored for k Nearest Neighbors (kNN), Linear Discriminant Analysis (LDA), Random Forest, and Regression models. 
 
 ```{r EDA Continuous Variables, include=FALSE}
 
@@ -120,56 +126,13 @@ cor(log(CaseStudy2$MonthlyIncome),CaseStudy2$log_TWYrs) # r=0.72
 ```
 
 
-## Continuous Variable EDA - Attrition and Monthly Income
+## EDA - Attrition
 
-Monthly Income and JobLevel appear strongly correlated in the pairs plot.  Per the correlation matrix, JobLevel has the highest correlation with Monthly Income by far with r=0.95.  Job Level is partially correlated with all of the other continuous predictors (multicollinearity).
+Many variables with numeric values are actually categorical with only 2-5 discrete levels.  These were recoded as factors for modeling.  From the colored bar chart grid, factors with light blue Yes's appear to be significant: Overtime, Job Role, and Monthly Income.  Factors with yellow Yes's may have an effect, and factors with orange Yes's appear to be insignificant.  
 
-Per the colored boxplots, Attrition may be somewhat related to Years in Current Role.
+Individual bar charts of the biggest visual effects show pretty clear signals for Attrition: OverTime is related to higher Attrition, Directors (Dir) have the lowest Attrition while Sales Reps have the highest and Lower Monthly Incomes are associated with higher attrition.
 
-```{r EDA Continuous/Factor Variables, echo=FALSE}
-
-CaseStudy2 %>% ggplot(aes(MonthlyIncome,fill=Attrition)) + geom_histogram(position="fill",bins=15) + ylab("Proportion") + ggtitle("Attrition vs. Monthly Income") + theme_classic(base_size = 12)
-
-# Factors with 2-4 levels coded as integers
-#pairs(CaseStudy2[,c(19,8,11,14,15,17)],col=CaseStudy2$Attrition)
-
-pairs(CaseStudy2[,c(19,15,27,30:33)],col=CaseStudy2$Attrition)
-cor(CaseStudy2[,c(19,15,2,27,30:33)])
-########################################################
-# JobLevel is best predictor with r=0.95
-# JobLevel is partially correlated with other predictors
-########################################################
-
-#pairs(CaseStudy2[,c(19,21,24:26,28:29)],col=CaseStudy2$Attrition)
-
-
-# Boxplot grid
-
-par(mfrow=c(2,2))
-
-plot(YearsInCurrentRole~Attrition,col=rainbow(2),data=CaseStudy2)
-
-plot(YearsAtCompany~Attrition,col=rainbow(2),data=CaseStudy2)
-
-plot(YearsWithCurrManager~Attrition,col=rainbow(2),data=CaseStudy2)
-
-plot(YearsSinceLastPromotion~Attrition,col=rainbow(2),data=CaseStudy2)
-
-par(mfrow=c(1,1))
-
-```
-
-
-## Categorical Factors EDA - Attrition
-
-Many variables with numeric values are actually categorical with only 2-5 discrete levels.  These were recoded as factors for modeling.  From the colored bar chart grid, factors with light blue Yes's appear to be significant: OverTime, JobRole, and MaritalStatus.  Factors with yellow Yes's may have an effect, and factors with orange Yes's appear to be insignificant.  
-
-Individual bar charts closer of the biggest visual effects show pretty clear signals for Attrition:
-- OverTime increases Attrition. 
-- Directors (Dir) have the lowest Attrition while Sales Reps have the highest. 
-- Single employees have higher attrition.
-
-```{r EDA Categorical, echo=FALSE}
+```{r EDA Categorical Attrition, echo=FALSE}
 
 # Recode numeric variables with 2-5 levels as factors:
 CaseStudy2$Educ=as.factor(CaseStudy2$Education)
@@ -201,6 +164,7 @@ par(mfrow=c(3,3))
 ############################################################
 plot(Attrition~OverTime,col=rainbow(2),data=CaseStudy2)
 plot(Attrition~JobRole,col=rainbow(2),data=CaseStudy2)
+plot(Attrition~MonthlyIncome,col=rainbow(2),data=CaseStudy2)
 # Big increasing trends
 ############################################################
 
@@ -214,7 +178,7 @@ plot(Attrition~BusinessTravel,col=rainbow(6),data=CaseStudy2)
 ############################################################
 
 ############################################################
-plot(Attrition~Educ,col=rainbow(11),data=CaseStudy2) 
+#plot(Attrition~Educ,col=rainbow(11),data=CaseStudy2) 
 plot(Attrition~Gender,col=rainbow(11),data=CaseStudy2)
 # No trends
 ############################################################
@@ -224,11 +188,11 @@ par(mfrow=c(1,1))
 
 
 
-CaseStudy2 %>% ggplot(aes(OverTime,fill=Attrition)) + geom_bar(position="fill") + ylab("Proportion") + ggtitle("Attrition vs. Overtime") + theme_classic(base_size = 20)
+CaseStudy2 %>% ggplot(aes(OverTime,fill=Attrition)) + geom_bar(position="fill") + ylab("Proportion") + ggtitle("Attrition vs. Overtime") + theme_classic(base_size = 15)
 
-CaseStudy2 %>% ggplot(aes(JobRole,fill=Attrition)) + geom_bar(position="fill") + ylab("Proportion") + ggtitle("Attrition vs. Job Role") + theme_classic(base_size = 20)
+CaseStudy2 %>% ggplot(aes(JobRole,fill=Attrition)) + geom_bar(position="fill") + ylab("Proportion") + ggtitle("Attrition vs. Job Role") + theme_classic(base_size = 15)
 
-CaseStudy2 %>% ggplot(aes(MaritalStatus,fill=Attrition)) + geom_bar(position="fill") + ylab("Proportion") + ggtitle("Attrition vs. Marital Status") + theme_classic(base_size = 20)
+CaseStudy2 %>% ggplot(aes(MonthlyIncome,fill=Attrition)) + geom_histogram(position="fill",bins=20) + ylab("Proportion") + ggtitle("Attrition vs. Marital Status") + theme_classic(base_size = 15)
 
 
 # Recode variable as binary:
@@ -259,7 +223,7 @@ summary(test_CS2)
 
 ## kNN Prediction of Attrition
 
-K Nearest Neighbors (kNN) was unsuccessful at reliably predicting Attrition with continuous variables.  kNN predictive models were not able to consistently achieve 60% sensitivity and 60% specificity in both the training and test sets.  This isn't surprising since the EDA did not show clear separation or clusters of Attrition vs. the continuous variables.  Monthly Income and Daily Rate were the top factors.      
+K Nearest Neighbors (kNN) was unsuccessful at reliably predicting Attrition with continuous variables.  kNN predictive models were not able to consistently achieve 60% sensitivity and 60% specificity in both the training and test sets.  Monthly Income and Daily Rate were the top factors.      
 
 
 ```{r kNN, include=FALSE}
@@ -283,7 +247,7 @@ CM_dump2
 
 
 
-```{r Avg Random Test/Train Sets, include=FALSE}
+```{r Avg Random Test-Train Sets, include=FALSE}
 
 Spec_train=c()
 Spec_test=c()
@@ -304,8 +268,6 @@ CM_test100
 Spec_train[i]=CM_train100$byClass[2]
 Spec_test[i]=CM_test100$byClass[2]
 
-NPV_train[i]=CM_train100$byClass[4]
-NPV_test[i]=CM_test100$byClass[4]
 }
 
 mean(Spec_train[!is.na(Spec_train)])
@@ -316,7 +278,7 @@ mean(Spec_test[!is.na(Spec_test)])
 
 ## Naive Bayes Prediction of Attrition 
 
-Using categorical variables, a Naive Bayes model was able to predict Attrition with 70-75% Sensitivity (correct No's) and 70-75% Specificity (correct Yes's) for the training set, test set, and refitted to the full data set.  This was achieved by increasing the prediction threshold from 0.5 to 0.835 to balance the prediction accuracy of both Yes's and No's for Attrition.  The prediction threshold can be further optimized if desired. 
+Using categorical variables, a Naive Bayes model was able to predict Attrition with 70-75% Sensitivity (correct No's) and 70-75% Specificity (correct Yes's) for the training set, test set, and refitted to the full data set (in that order below).  This was achieved by changing the prediction threshold from 0.50-0.50 to 0.83-0.17 to balance the prediction accuracy of both No's and Yes's for Attrition.  The prediction threshold can be further optimized if desired. 
 
 ```{r Naive Bayes, echo=FALSE}
 
@@ -328,9 +290,9 @@ NB1 = naiveBayes(Attrition~OverTime+JobRole+Stock+JobSat+EnvSat+JobInv,data = tr
 pred1_NB_train=predict(NB1,train_CS2, type = "raw")
 pred2_NB_train=predict(NB1,train_CS2) 
 
-# ROC Curve with AUC metric
-pred1 <- as.data.frame(pred1_NB_train)
-pred1roc <- prediction(pred1[,2],train_CS2$Attrition)
+# ROC Curve with AUC metric (Code from Dr. Turner, Stats2)
+pred1 = as.data.frame(pred1_NB_train)
+pred1roc = prediction(pred1[,2],train_CS2$Attrition)
 roc.perf = performance(pred1roc, measure = "tpr", x.measure = "fpr")
 #auc.train <- performance(pred1roc, measure = "auc")
 #auc.train <- auc.train@y.values
@@ -344,21 +306,19 @@ roc.perf = performance(pred1roc, measure = "tpr", x.measure = "fpr")
 #CM_NB_train=confusionMatrix(pred2_NB_train,train_CS2$Attrition)
 #CM_NB_train # 97% Sens, 39% Spec
 
-roc.df <- data.frame( unlist(roc.perf@y.values),
+# Balanced Threshold (My Code)
+roc.df = data.frame( unlist(roc.perf@y.values),
                       1-unlist(roc.perf@x.values),
                       unlist(roc.perf@alpha.values) )
 names(roc.df)=c("Sensitivity","Specificity","Threshold")
 
-################################################################################
-# Balanced Threshold
 roc.df$Bal=abs(roc.df$Sensitivity-roc.df$Specificity)
-roc.df[roc.df$Bal==min(roc.df$Bal),]
+#roc.df[roc.df$Bal==min(roc.df$Bal),]
 thresh = roc.df$Threshold[roc.df$Bal==min(roc.df$Bal)]
-out = factor(ifelse(pred1_NB_train[,2] < thresh, "No", "Yes"), levels = c("No", "Yes"))
-NB_balanced_train=confusionMatrix(out,train_CS2$Attrition)
+balpred = factor(ifelse(pred1_NB_train[,2] < thresh, "No", "Yes"), levels = c("No", "Yes"))
+NB_balanced_train=confusionMatrix(balpred,train_CS2$Attrition)
 NB_balanced_train
-# Acc=Sens=Spec=PPV=NPV=0.73, threshold=0.835
-################################################################################
+# Acc=Sens=Spec=PPV=NPV=0.73, threshold=0.17
 
 
 # Test Set
@@ -384,8 +344,8 @@ pred2_NB_test=predict(NB1,test_CS2)
 
 # Use the balanced prediction threshold instead
 # To balance Sensitivity/Specificity
-out <- factor(ifelse(pred1_NB_test[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
-NB_balanced_test=confusionMatrix(out,test_CS2$Attrition)
+balpred = factor(ifelse(pred1_NB_test[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
+NB_balanced_test=confusionMatrix(balpred,test_CS2$Attrition)
 NB_balanced_test
 
 
@@ -413,15 +373,13 @@ pred2_NB_full=predict(NB_full,CaseStudy2)
 
 # Use the balanced prediction threshold instead
 # To balance Sensitivity/Specificity
-out <- factor(ifelse(pred1_NB_full[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
-NB_balanced_alldata=confusionMatrix(out,CaseStudy2$Attrition)
+balpred = factor(ifelse(pred1_NB_full[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
+NB_balanced_alldata=confusionMatrix(balpred,CaseStudy2$Attrition)
 NB_balanced_alldata
 ```
 
 
-### Random repeat training/test splits for Naive Bayes
-
-Naive Bayes model is relatively robust and replicable with 30 different random training/test splits.
+The Naive Bayes model is relatively robust and replicable with many different random training/test splits.  Refer to the Rmd code for more information.  
 
 ```{r Avg Random Test/Train Sets, include=FALSE}
 
@@ -448,16 +406,16 @@ for (i in 1:30){
    pred1_NB100_train=predict(NB100,train_CS, type = "raw")
    pred2_NB100_train=predict(NB100,train_CS) 
    
-   out <- factor(ifelse(pred1_NB100_train[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
-   CM_NB100_train=confusionMatrix(out,train_CS$Attrition)
+   balpred = factor(ifelse(pred1_NB100_train[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
+   CM_NB100_train=confusionMatrix(balpred,train_CS$Attrition)
    
    # Test Set
    
    pred1_NB100_test=predict(NB100,test_CS, type = "raw")
    pred2_NB100_test=predict(NB100,test_CS) 
    
-   out <- factor(ifelse(pred1_NB100_test[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
-   CM_NB100_test=confusionMatrix(out,test_CS$Attrition)
+   balpred = factor(ifelse(pred1_NB100_test[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
+   CM_NB100_test=confusionMatrix(balpred,test_CS$Attrition)
    
    
    Sens_train[i]=CM_NB100_train$byClass[1]
@@ -467,81 +425,87 @@ for (i in 1:30){
    Spec_test[i]=CM_NB100_test$byClass[2]
 }
 
+Sens_train
+mean(Sens_train)
+Spec_train
+mean(Spec_train)
+
+
 Sens_test
 mean(Sens_test)
-var(Sens_test)
 Spec_test
 mean(Spec_test)
-var(Spec_test)
 
 ```
 
 
-## Random Forest - Attrition
+```{r Predict Attrition Comp, include=FALSE}
 
-Random Forest was also used to predict Attrition.  Using all of the variables in this "black box" model, the prediction really isn't much better than Naives Bayes and is harder to interpret.  The Variable Importance plots agree with Naive Bayes that OverTime and Job Role are top factors.  Monthly Income is also an important factor which is consistent with kNN.     
+# Recode variables to match model
+CS2CompAttr$JobSat=as.factor(CS2CompAttr$JobSatisfaction)
+CS2CompAttr$EnvSat=as.factor(CS2CompAttr$EnvironmentSatisfaction)
+CS2CompAttr$JobInv=as.factor(CS2CompAttr$JobInvolvement)
+CS2CompAttr$Stock=as.factor(CS2CompAttr$StockOptionLevel)
 
-```{r Random Forest, echo=FALSE}
-#Random forest
-#mtry controls # of predictors sampled for each bootstrap sample.
+#Predict Attrition with Balanced Threshold
+rawprob=predict(NB1,CS2CompAttr,type="raw")
+CS2CompAttr$Attrition = factor(ifelse(rawprob[,2] < thresh, "No","Yes"), levels = c("No","Yes"))
 
-rf1<-randomForest(Attrition~.,data=train_CS2,mtry=10,importance=T,ntree=300)
-
-#ROC - Test Set
-rf1.pred<-predict(rf1,newdata=test_CS2,type="prob")
-pred <- prediction(rf1.pred[,2], test_CS2$Attrition)
-roc.perf = performance(pred, measure = "tpr", x.measure = "fpr")
-auc <- performance(pred, measure = "auc")
-auc <- auc@y.values
-plot(roc.perf,main="Random Forest ROC Curve - Test set")
-abline(a=0, b= 1)
-text(x = .40, y = .6,paste("AUC = ", round(auc[[1]],3), sep = ""))
-AUC[i]=round(auc[[1]],4)
-
-fit1.pred<-predict(rf1,newdata=test_CS2,type="response",cutoff=c(0.81,0.19))
-RF_test=confusionMatrix(fit1.pred,test_CS2$Attrition)
-RF_test
-
-# Top 5 important variables
-
-par(mfrow=c(1,2))
-varImpPlot (rf1,type=1,main="Top 3 RF Variables",n.var=3)
-varImpPlot (rf1,type=2,main="Top 3 RF Variables ",n.var=3)
-par(mfrow=c(1,1))
+#Keep ID and Attrition only and write to csv
+#write.csv(CS2CompAttr[,c("ID","Attrition")], file="~/R/Case2PredictionsLeppla Attrition.csv",row.names=F)
 ```
 
 
+## Data Exploration - Monthly Income
 
-## Categorical Factors EDA - Monthly Income Response
+Monthly Income and JobLevel appear strongly correlated in the paired scatterplots.  Per the correlation matrix, JobLevel has the highest correlation with Monthly Income by far with r=0.95.  Job Level is partially correlated with several other continuous predictors (multicollinearity).
+
+
+```{r EDA Continuous/Factor Variables, echo=FALSE}
+
+# Factors with 2-4 levels coded as integers
+#pairs(CaseStudy2[,c(19,8,11,14,15,17)],col=CaseStudy2$Attrition)
+
+pairs(CaseStudy2[,c(19,15,27,2)])
+cor(CaseStudy2[,c(19,15,27,2,30:33,7,13)],y=CaseStudy2[,c(19,15)])
+########################################################
+# JobLevel is best predictor with r=0.95
+# JobLevel is partially correlated with other predictors
+########################################################
+
+#pairs(CaseStudy2[,c(19,21,24:26,28:29)],col=CaseStudy2$Attrition)
+
+```
+
 
 Per the box plot grid, Job Role is strongly related to Monthly Income. However, it's highly correlated/confounded with Job Level which can be seen in the scatterplot color bands.
 
 Job Level is related to Job Role as follows:
 
-Job Levels   Job Roles
-   1-2       Sales Representative
-   1-3       Laboratory Technician
-   1-3       Research Scientist, Human Resources
-   2-4       Manufacturing Director, Healthcare Representative, Sales Executive
-   3-5       Manager and Research Director 
+Levels 1-2 = Sales Representative
+Levels 1-3 = Laboratory Technician
+Levels 1-3 = Research Scientist, Human Resources
+Levels 2-4 = Manufacturing Director, Healthcare Representative, Sales Executive
+Levels 3-5 = Manager and Research Director 
 
-```{r EDA Categorical, echo=FALSE}
+```{r EDA Categorical Salary, echo=FALSE}
 
-par(mfrow=c(2,2))
-boxplot(MonthlyIncome~BusinessTravel,data=CaseStudy2)
-boxplot(MonthlyIncome~Department,data=CaseStudy2) #Minor Effect
-boxplot(MonthlyIncome~EducationField,data=CaseStudy2) #Minor Effect
-boxplot(MonthlyIncome~Gender,data=CaseStudy2)
+#Reorder Job Role levels for increasing MonthlyIncome
+CaseStudy2$JobRole=factor(CaseStudy2$JobRole,levels=c("Sales Rep","Lab Tech","HR","R&D Sci","Sales Exec","HlthCr Rep","Mfg Dir","Mngr","R&D Dir"))
+
+par(mfrow=c(1,2))
 boxplot(MonthlyIncome~JobRole,data=CaseStudy2) # Biggest Factor
-boxplot(MonthlyIncome~MaritalStatus,data=CaseStudy2)
-boxplot(MonthlyIncome~OverTime,data=CaseStudy2)
-boxplot(MonthlyIncome~Attrition,data=CaseStudy2) #Minor Effect
+boxplot(MonthlyIncome~JobLvl,data=CaseStudy2) # Biggest Factor#boxplot(MonthlyIncome~BusinessTravel,data=CaseStudy2)
+#boxplot(MonthlyIncome~Department,data=CaseStudy2) #Minor Effect
+#boxplot(MonthlyIncome~EducationField,data=CaseStudy2) #Minor Effect
+#boxplot(MonthlyIncome~Gender,data=CaseStudy2)
+#boxplot(MonthlyIncome~MaritalStatus,data=CaseStudy2)
+#boxplot(MonthlyIncome~OverTime,data=CaseStudy2)
+#boxplot(MonthlyIncome~Attrition,data=CaseStudy2) #Minor Effect
 par(mfrow=c(1,1))
 
 #CaseStudy2 %>% ggplot(aes(JobRole,MonthlyIncome,col=JobLvl)) + geom_point()
 # Data aren't balanced for JobLevel vs. JobRole, partially confounded
-
-CaseStudy2$JobRole=factor(CaseStudy2$JobRole,levels=c("Sales Rep","Lab Tech","HR","R&D Sci","Sales Exec","HlthCr Rep","Mfg Dir","Mngr","R&D Dir"))
 
 CaseStudy2 %>% ggplot(aes(JobRole,MonthlyIncome,col=JobLvl)) + geom_point() + ggtitle("Monthly Income vs. Job Level & Role")
 
@@ -556,8 +520,10 @@ CaseStudy2 %>% ggplot(aes(JobRole,MonthlyIncome,col=JobLvl)) + geom_point() + gg
 Regression was used to predict Monthly Salary.  Job Level alone predicted Monthly Salary very well with an average error (RMSE) of approximately $1,260 and an R-squared value of 97%.  Mean Monthly Salary increases (non-linearly) as Job Level increases from 1 to 4.  This is a simple, effective, practical model.  
 
 Monthly Income is nonlinear vs. Job Level.  This curvature can be dealt with in one of two ways:
-1. Use JobLevel as a categorical factor with discrete levels of 1, 2, 3, and 4
-2. Use JobLevel as a polynomial: Job + Job^2 + Job^3
+
+1.Use JobLevel as a categorical factor with discrete levels of 1, 2, 3, and 4
+
+2.Use JobLevel as a polynomial: Job + Job^2 + Job^3
 
 ```{r Salary Simple Linear Regression CV, include=FALSE}
 
@@ -579,10 +545,14 @@ par(mfrow=c(1,1))
 
 Job Level as a factor appears to be a good fit with all factor levels statistically significant and an R-squared value of 92.5%.        
 
+
 Check Residuals for Model Assumptions:
-- Non-constant variance in the residuals may be a problem for any t-tests and confidence/prediction intervals.    
-- Residuals are non-normal, but n>30 so the analysis is robust per the Central Limit Theorem. 
-- No high influence points to worry about (low Cook's D).  
+
+Non-constant variance in the residuals may be a problem for any t-tests and confidence/prediction intervals.    
+Residuals are non-normal, but n>30 so the analysis is robust per the Central Limit Theorem. 
+
+No high influence points to worry about (low Cook's D).  
+
 
 The assumption of non-constant variance may be violated, and the Brown-Forsythe test confirms this is the case.  That said, this test can detect very small differences in variance with such a large sample size (n=256).  
 
@@ -595,7 +565,7 @@ lm1f=lm(MonthlyIncome~JobLvl,data=train_CS2)
 summary(lm1f) #Rsq = 92.5%
 
 glm1f = glm(MonthlyIncome~JobLvl,data=train_CS2)
-glm1f$aic # 10,447
+#glm1f$aic # 10,447
 
 # Check Residuals
 par(mfrow=c(2,2))
@@ -615,7 +585,7 @@ oneway.test(MonthlyIncome~JobLvl,data=CaseStudy2,var.equal=F)
 kruskal.test(MonthlyIncome~JobLvl,data=CaseStudy2)
 
 # Parameter confidence Intervals
-confint(lm1f)
+#confint(lm1f)
 ```
 
 
@@ -632,7 +602,7 @@ weight=CaseStudy2 %>% group_by(JobLvl) %>%
 weight=as.data.frame(weight)
 CaseStudy2=merge(CaseStudy2,weight,by="JobLvl")
 CaseStudy2=CaseStudy2[order(CaseStudy2$ID),]
-head(CaseStudy2)
+#head(CaseStudy2)
 
 # Rerun Training-Test Split to get weights
 set.seed(11133)
@@ -645,15 +615,15 @@ lm1f_wtd = lm(MonthlyIncome~JobLvl,data=train_CS2,weights=weight)
 summary(lm1f_wtd) # Rsq=97%
 # Compared to lm1f, weights don't change the Coefficient Estimates 
 # for the factor levels, but it does change the confidence intervals
-confint(lm1f_wtd)
+#confint(lm1f_wtd)
 
 glm_wtd = glm(MonthlyIncome~JobLvl,data=train_CS2,weights=weight)
-glm_wtd$aic # 10,273
+#glm_wtd$aic # 10,273
 
 # Check curvature of residuals vs. fits 
-par(mfrow=c(1,2))
-plot(lm1f_wtd,which=1) # Non-weighted residuals
-plot(weighted.residuals(lm1f_wtd)~lm1f_wtd$fitted.values,xlab="Fitted Values",ylab="Weighted Residuals", main="Weighted Residuals vs. Fitted")
+#par(mfrow=c(1,2))
+#plot(lm1f_wtd,which=1) # Non-weighted residuals
+#plot(weighted.residuals(lm1f_wtd)~lm1f_wtd$fitted.values,xlab="Fitted Values",ylab="Weighted Residuals", main="Weighted Residuals vs. Fitted")
 # Still some curvature 
 
 # Check All Residuals
@@ -783,14 +753,14 @@ plot(glm.final,which=5) # Ok
 par(mfrow=c(1,1))
 
 # Parameter confidence Intervals
-confint(lm.final)
+#confint(lm.final)
 x.vals=c()
 x.vals$JobLvl=factor(c(1:5))
-predict(lm.final,newdata=x.vals,interval="prediction",weights=weight$weight)
+#predict(lm.final,newdata=x.vals,interval="prediction",weights=weight$weight)
 
 lm.final.pred = predict(lm.final, newdata = CaseStudy2,weights=weight)
 Final_RMSE=sqrt(mean((CaseStudy2$MonthlyIncome - lm.final.pred)^2))
-Final_RMSE
+#Final_RMSE
 
 ###################################################################################
 # Visualize the Model
@@ -831,14 +801,28 @@ for (i in 1:5){
 }
 
 
-
-
 ```
 
 
-## Linear Discriminant Analysis (LDA)
+```{r Predict Salary Comp, include=FALSE}
 
-Finally, an LDA model was tested to model Attrition.  Monthly Income alone was a reasonably good predictor with 60% Sensitivity and Specificity.  A more complex LDA model with most of the numeric predictors improved to 70% Sensitivity and Specificity.  This model could likely be reduced/improved by removing insignificant terms.          
+# Recode variables to match model
+CS2CompSalary$JobLvl=as.factor(CS2CompSalary$JobLevel)
+
+#Predict with weighted least squares and check trend
+CS2CompSalary$MonthlyIncome=predict(lm1f_wtd,newdata=CS2CompSalary,weights=weight$weight)
+plot(CS2CompSalary$MonthlyIncome~CS2CompSalary$JobLvl)
+
+#Keep ID and MonthlySalary only and write to csv
+#write.csv(CS2CompSalary[,c("ID","MonthlyIncome")], file="~/R/Case2PredictionsLeppla Salary.csv",row.names=F)
+```
+
+
+## Linear Discriminant Analysis (LDA) - Attrition
+
+An LDA model was also tested to model Attrition.  Monthly Income alone was a reasonably good predictor with 60% Sensitivity and Specificity.  
+
+A more complex LDA model with most of the numeric predictors improved to 70% Sensitivity and Specificity.  This model could likely be improved/reduced by removing insignificant terms.          
 
 ```{r LDA, echo=FALSE}
 
@@ -852,17 +836,40 @@ CS_dump=CaseStudy2[,c(4,19,20,8,11,15,17,21,24:26,29,30,32:33)]
 my_lda2a <- lda(Attrition~., data = CS_dump,CV=T,prior=c(0.47,0.53)) 
 CM_2 = confusionMatrix(my_lda2a$class,CaseStudy2$Attrition) 
 CM_2
-# 74% sensitivity and 69% specificity
-
-my_lda2 <- lda(Attrition~., data = CS_dump,CV=T,prior=c(0.47,0.53)) 
-CM_2b = confusionMatrix(my_lda2$class,CaseStudy2$Attrition) 
-CM_2
-# 71-72% sensitivity and specificity
-
-CS_dump=CaseStudy2[,c(4,19,20,8,11,15,17,21,24:26,29,30,32:33)]
-
+# 70-75% sensitivity and specificity
 
 
 ```
 
 
+## Random Forest - Attrition
+
+Finally, Random Forest was also used to predict Attrition.  Using all of the variables in this "black box" model, the prediction really isn't much better than Naives Bayes and is harder to interpret.  The Variable Importance plots agree with Naive Bayes that OverTime and Job Role are top factors.  Monthly Income is also an important factor which is consistent with kNN and LDA.     
+
+```{r Random Forest, echo=FALSE}
+#Random forest
+#mtry controls # of predictors sampled for each bootstrap sample.
+
+rf1<-randomForest(Attrition~.,data=train_CS2,mtry=10,importance=T,ntree=300)
+
+#ROC - Test Set
+#rf1.pred<-predict(rf1,newdata=test_CS2,type="prob")
+#pred <- prediction(rf1.pred[,2], test_CS2$Attrition)
+#roc.perf = performance(pred, measure = "tpr", x.measure = "fpr")
+#auc <- performance(pred, measure = "auc")
+#auc <- auc@y.values
+#plot(roc.perf,main="Random Forest ROC Curve - Test set")
+#abline(a=0, b= 1)
+#text(x = .40, y = .6,paste("AUC = ", round(auc[[1]],3), sep = ""))
+
+fit1.pred<-predict(rf1,newdata=test_CS2,type="response",cutoff=c(0.81,0.19))
+RF_test=confusionMatrix(fit1.pred,test_CS2$Attrition)
+RF_test
+
+# Top 3 important variables
+
+par(mfrow=c(1,2))
+varImpPlot (rf1,type=1,main="Top 3 RF Variables",n.var=3)
+varImpPlot (rf1,type=2,main="Top 3 RF Variables ",n.var=3)
+par(mfrow=c(1,1))
+```
